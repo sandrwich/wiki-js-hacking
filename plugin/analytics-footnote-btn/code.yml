@@ -95,9 +95,21 @@ bodyEnd: |
       }
 
       // Keyboard shortcut
+      var keybindStr = '{{keybind}}' || 'Ctrl+Shift+F';
+      var parts = keybindStr.split('+').map(function(s) { return s.trim().toLowerCase(); });
+      var bindKey = parts.filter(function(p) { return p !== 'ctrl' && p !== 'shift' && p !== 'alt' && p !== 'meta'; })[0] || 'f';
+      var needCtrl = parts.indexOf('ctrl') >= 0;
+      var needShift = parts.indexOf('shift') >= 0;
+      var needAlt = parts.indexOf('alt') >= 0;
+
+      btn.title = 'Insert Footnote (' + keybindStr + ')';
+
       var root = editor.editing.view.getDomRoot();
       root.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        var ctrlOk = needCtrl ? (e.ctrlKey || e.metaKey) : !e.ctrlKey && !e.metaKey;
+        var shiftOk = needShift ? e.shiftKey : !e.shiftKey;
+        var altOk = needAlt ? e.altKey : !e.altKey;
+        if (ctrlOk && shiftOk && altOk && e.key.toLowerCase() === bindKey) {
           e.preventDefault();
           e.stopPropagation();
           insertFootnote(editor);

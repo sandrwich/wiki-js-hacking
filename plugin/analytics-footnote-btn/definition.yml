@@ -12,3 +12,9 @@ props:
     hint: "Which definitions block to append new footnotes to. 'first' = first block found, 'last' = last block found."
     default: "first"
     order: 1
+  keybind:
+    type: String
+    title: Keyboard Shortcut
+    hint: "Shortcut to insert a footnote. Use + to combine modifiers. Examples: Ctrl+Shift+F, Alt+F"
+    default: "Ctrl+Shift+F"
+    order: 2
