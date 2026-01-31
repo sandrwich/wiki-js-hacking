@@ -1,0 +1,36 @@
+version: "3"
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wikijs
+      POSTGRES_PASSWORD: wikijsrocks
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  wiki:
+    image: requarks/wiki:2
+    depends_on:
+      - db
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: wikijs
+      DB_PASS: wikijsrocks
+      DB_NAME: wiki
+    volumes:
+      - ./plugin/html-data-gremlin:/wiki/server/modules/rendering/html-data-gremlin
+      - ./plugin/ext-data-gremlin:/wiki/server/modules/extensions/data-gremlin
+      - ./plugin/analytics-table-tidy:/wiki/server/modules/analytics/table-tidy
+      - ./plugin/html-footnotes:/wiki/server/modules/rendering/html-footnotes
+      - ./plugin/analytics-footnote-btn:/wiki/server/modules/analytics/footnote-btn
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  db-data:

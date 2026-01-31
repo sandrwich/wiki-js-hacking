@@ -1,0 +1,45 @@
+key: htmlDataGremlin
+title: Data Gremlin (JSON Table API)
+description: A little gremlin that turns json/csv/tsv/text code blocks into tables and sneaks in API endpoints.
+author: Sandra
+icon: mdi-table
+website: https://github.com/sandrwich
+enabledDefault: true
+dependsOn: htmlCore
+props:
+  renderers:
+    type: String
+    default: '[]'
+    title: Custom Renderers (JSON)
+    hint: >
+      JSON array of {"name": "...", "code": "..."} objects.
+      "code" is a JS function body receiving (data, columns) that returns an HTML table body string.
+    multiline: true
+    order: 1
+  tableClass:
+    type: String
+    default: 'json-api-table'
+    title: CSS Class
+    hint: CSS class applied to rendered tables.
+    order: 2
+  apiRoute:
+    type: String
+    default: '/gremlin/:id'
+    title: API Route Path
+    hint: >
+      Route pattern for the REST API. Must contain :id for the block identifier.
+      Examples: /gremlin/:id, /data/:id/raw, /api/v1/blocks/:id.
+      Requires restart.
+    order: 3
+  showApiLink:
+    type: Boolean
+    default: true
+    title: Show API Link
+    hint: Add a clickable API endpoint link below each rendered table (opens in new tab).
+    order: 4
+  apiEnabled:
+    type: Boolean
+    default: true
+    title: Enable API Endpoint
+    hint: Expose data blocks as a REST API. Requires restart to take effect.
+    order: 5
