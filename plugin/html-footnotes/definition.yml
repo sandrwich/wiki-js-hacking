@@ -1,0 +1,9 @@
+key: html-footnotes
+title: Footnotes
+description: Adds footnote support for the Visual Editor. Converts [^id] markers into linked superscript references with a collected footnote section.
+author: Sandra
+website: https://github.com/sandrwich
+icon: mdi-format-superscript
+enabledDefault: true
+dependsOn: htmlCore
+props: {}

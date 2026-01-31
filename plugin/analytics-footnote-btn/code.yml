@@ -1,0 +1,121 @@
+head: ""
+bodyStart: ""
+bodyEnd: |
+  <script>
+  (function() {
+    if (!/^\/e\//.test(window.location.pathname)) return;
+
+    function getNextFootnoteId(editor) {
+      var data = editor.getData();
+      var max = 0;
+      var re = /\[\^(\d+)\]/g;
+      var m;
+      while ((m = re.exec(data)) !== null) {
+        var n = parseInt(m[1], 10);
+        if (n > max) max = n;
+      }
+      return max + 1;
+    }
+
+    function insertFootnote(editor) {
+      var n = getNextFootnoteId(editor);
+
+      editor.model.change(function(writer) {
+        // Insert [^n] at cursor
+        var selection = editor.model.document.selection;
+        var pos = selection.getFirstPosition();
+        if (pos) {
+          writer.insertText('[^' + n + ']', pos);
+        }
+
+        // Find definitions block to append to
+        var appendTo = '{{appendTo}}' || 'first';
+        var root = editor.model.document.getRoot();
+        var defIdx = -1;
+
+        function hasDefinition(idx) {
+          var child = root.getChild(idx);
+          var text = '';
+          for (var item of editor.model.createRangeIn(child).getItems()) {
+            if (item.data) text += item.data;
+          }
+          return /\[\^\w+\]:/.test(text);
+        }
+
+        if (appendTo === 'last') {
+          for (var i = root.childCount - 1; i >= 0; i--) {
+            if (hasDefinition(i)) { defIdx = i; break; }
+          }
+        } else {
+          for (var i = 0; i < root.childCount; i++) {
+            if (hasDefinition(i)) { defIdx = i; break; }
+          }
+        }
+
+        if (defIdx >= 0) {
+          // Append to existing definitions paragraph with a softBreak
+          var defPara = root.getChild(defIdx);
+          var endPos = writer.createPositionAt(defPara, 'end');
+          writer.insert(writer.createElement('softBreak'), endPos);
+          writer.insertText('[^' + n + ']: ', writer.createPositionAt(defPara, 'end'));
+        } else {
+          // No definitions yet — add blank line then definition
+          var lastChild = root.getChild(root.childCount - 1);
+          var sep = writer.createElement('paragraph');
+          writer.insert(sep, writer.createPositionAfter(lastChild));
+          var para = writer.createElement('paragraph');
+          writer.insertText('[^' + n + ']: ', para, 0);
+          writer.insert(para, writer.createPositionAfter(sep));
+        }
+      });
+    }
+
+    function hookEditor(editor) {
+      // Toolbar button
+      var toolbar = document.querySelector('.ck-toolbar__items');
+      if (toolbar) {
+        var sep = document.createElement('span');
+        sep.className = 'ck ck-toolbar__separator';
+        toolbar.appendChild(sep);
+
+        var btn = document.createElement('button');
+        btn.className = 'ck ck-button ck-off';
+        btn.type = 'button';
+        btn.title = 'Insert Footnote (Ctrl+Shift+F)';
+        btn.innerHTML = '<span style="font-size: 11px; font-weight: bold; line-height: 1;">f<sup>n</sup></span>';
+        btn.style.cssText = 'min-width: 32px; min-height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer;';
+        btn.addEventListener('mousedown', function(e) {
+          e.preventDefault(); // prevent focus loss from editor
+        });
+        btn.addEventListener('click', function() {
+          editor.editing.view.focus();
+          insertFootnote(editor);
+        });
+        toolbar.appendChild(btn);
+      }
+
+      // Keyboard shortcut
+      var root = editor.editing.view.getDomRoot();
+      root.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          e.stopPropagation();
+          insertFootnote(editor);
+        }
+      }, true);
+
+      console.log('[Footnote Plugin] Ready (Ctrl+Shift+F / toolbar button)');
+    }
+
+    var attempts = 0;
+    var poll = setInterval(function() {
+      attempts++;
+      var el = document.querySelector('.ck-editor__editable');
+      if (el && el.ckeditorInstance) {
+        clearInterval(poll);
+        hookEditor(el.ckeditorInstance);
+      }
+      if (attempts > 100) clearInterval(poll);
+    }, 100);
+  })();
+  </script>

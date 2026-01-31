@@ -1,0 +1,14 @@
+key: footnote-btn
+title: Footnote Button
+description: Adds a proper footnote plugin to the Visual Editor (CKEditor). Renders footnotes as styled superscript widgets with a toolbar button to insert them.
+author: Sandra
+website: https://github.com/sandrwich
+logo: https://static.requarks.io/logo/wikijs.svg
+isAvailable: true
+props:
+  appendTo:
+    type: String
+    title: Append Definitions To
+    hint: "Which definitions block to append new footnotes to. 'first' = first block found, 'last' = last block found."
+    default: "first"
+    order: 1
