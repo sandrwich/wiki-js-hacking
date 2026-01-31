@@ -1,0 +1,255 @@
+// ==UserScript==
+// @name         Wiki.js Table Tidy
+// @namespace    https://github.com/sandrwich
+// @version      1.0
+// @description  Auto-formats markdown tables in the Wiki.js editor. Aligns pipes and pads cells.
+// @author       Sandra
+// @match        */e/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+  'use strict';
+
+  // ─── Configuration ────────────────────────────────────────────────
+  var FORMAT_KEYBIND = 'Shift-Alt-F';
+  var TAB_NAVIGATION = true;
+
+  // ─── Table Formatting ─────────────────────────────────────────────
+
+  function isTableLine(line) {
+    return /^\s*\|/.test(line);
+  }
+
+  function isSeparatorLine(line) {
+    return /^\s*\|[\s:?-]+\|/.test(line.replace(/\|/g, function() {
+      return '|';
+    })) && /^[\s|:\-]+$/.test(line);
+  }
+
+  function parseCells(line) {
+    var trimmed = line.trim();
+    if (trimmed.charAt(0) === '|') trimmed = trimmed.substring(1);
+    if (trimmed.charAt(trimmed.length - 1) === '|') trimmed = trimmed.substring(0, trimmed.length - 1);
+    return trimmed.split('|').map(function(c) { return c.trim(); });
+  }
+
+  function formatTable(lines) {
+    var rows = [];
+    var sepIndices = [];
+    for (var i = 0; i < lines.length; i++) {
+      if (isSeparatorLine(lines[i])) {
+        sepIndices.push(i);
+        rows.push(null);
+      } else {
+        rows.push(parseCells(lines[i]));
+      }
+    }
+
+    var maxCols = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].length > maxCols) maxCols = rows[i].length;
+    }
+    if (maxCols === 0) return lines;
+
+    var widths = [];
+    for (var c = 0; c < maxCols; c++) widths.push(3);
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i]) continue;
+      for (var c = 0; c < rows[i].length; c++) {
+        var len = rows[i][c].length;
+        if (len > widths[c]) widths[c] = len;
+      }
+    }
+
+    var alignments = [];
+    for (var c = 0; c < maxCols; c++) alignments.push('l');
+    if (sepIndices.length > 0) {
+      var sepCells = parseCells(lines[sepIndices[0]]);
+      for (var c = 0; c < sepCells.length && c < maxCols; c++) {
+        var s = sepCells[c].trim();
+        var left = s.charAt(0) === ':';
+        var right = s.charAt(s.length - 1) === ':';
+        if (left && right) alignments[c] = 'c';
+        else if (right) alignments[c] = 'r';
+      }
+    }
+
+    var result = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i]) {
+        var parts = [];
+        for (var c = 0; c < maxCols; c++) {
+          var dashes = '';
+          for (var d = 0; d < widths[c]; d++) dashes += '-';
+          if (alignments[c] === 'c') parts.push(':' + dashes + ':');
+          else if (alignments[c] === 'r') parts.push(' ' + dashes + ':');
+          else parts.push(' ' + dashes + ' ');
+        }
+        result.push('|' + parts.join('|') + '|');
+      } else {
+        var parts = [];
+        for (var c = 0; c < maxCols; c++) {
+          var cell = (c < rows[i].length) ? rows[i][c] : '';
+          var pad = widths[c] - cell.length;
+          var padStr = '';
+          for (var p = 0; p < pad; p++) padStr += ' ';
+          if (alignments[c] === 'r') {
+            parts.push(' ' + padStr + cell + ' ');
+          } else if (alignments[c] === 'c') {
+            var left = Math.floor(pad / 2);
+            var right = pad - left;
+            var lp = ''; for (var p = 0; p < left; p++) lp += ' ';
+            var rp = ''; for (var p = 0; p < right; p++) rp += ' ';
+            parts.push(' ' + lp + cell + rp + ' ');
+          } else {
+            parts.push(' ' + cell + padStr + ' ');
+          }
+        }
+        result.push('|' + parts.join('|') + '|');
+      }
+    }
+    return result;
+  }
+
+  // ─── Table Region Detection ───────────────────────────────────────
+
+  function findTableAt(cm, lineNo) {
+    var start = lineNo, end = lineNo;
+    var lastLine = cm.lastLine();
+    while (start > 0 && isTableLine(cm.getLine(start - 1))) start--;
+    while (end < lastLine && isTableLine(cm.getLine(end + 1))) end++;
+    if (start === end && !isTableLine(cm.getLine(start))) return null;
+    var lines = [];
+    for (var i = start; i <= end; i++) lines.push(cm.getLine(i));
+    return { start: start, end: end, lines: lines };
+  }
+
+  function formatTableAt(cm, lineNo) {
+    var table = findTableAt(cm, lineNo);
+    if (!table) return false;
+    var formatted = formatTable(table.lines);
+    cm.operation(function() {
+      for (var i = 0; i < formatted.length; i++) {
+        var ln = table.start + i;
+        cm.replaceRange(formatted[i], {line: ln, ch: 0}, {line: ln, ch: cm.getLine(ln).length});
+      }
+    });
+    return true;
+  }
+
+  function formatAllTables(cm) {
+    var i = 0, lastLine = cm.lastLine(), count = 0;
+    while (i <= lastLine) {
+      if (isTableLine(cm.getLine(i))) {
+        var table = findTableAt(cm, i);
+        if (table) {
+          var formatted = formatTable(table.lines);
+          cm.operation(function() {
+            for (var j = 0; j < formatted.length; j++) {
+              var ln = table.start + j;
+              cm.replaceRange(formatted[j], {line: ln, ch: 0}, {line: ln, ch: cm.getLine(ln).length});
+            }
+          });
+          i = table.end + 1;
+          count++;
+          continue;
+        }
+      }
+      i++;
+    }
+    return count;
+  }
+
+  // ─── Tab Navigation ───────────────────────────────────────────────
+
+  function getCellIndex(line, ch) {
+    var count = 0;
+    for (var i = 0; i < ch; i++) {
+      if (line.charAt(i) === '|') count++;
+    }
+    return count;
+  }
+
+  function goToCell(cm, lineNo, cellIdx) {
+    var line = cm.getLine(lineNo);
+    var count = 0;
+    for (var i = 0; i < line.length; i++) {
+      if (line.charAt(i) === '|') {
+        count++;
+        if (count === cellIdx) {
+          var start = i + 1;
+          while (start < line.length && line.charAt(start) === ' ') start++;
+          cm.setCursor({line: lineNo, ch: start});
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function tabNextCell(cm) {
+    var cursor = cm.getCursor();
+    var line = cm.getLine(cursor.line);
+    var cellIdx = getCellIndex(line, cursor.ch);
+    var cells = parseCells(line);
+    var nextIdx = cellIdx + 1;
+
+    if (nextIdx <= cells.length) {
+      formatTableAt(cm, cursor.line);
+      goToCell(cm, cursor.line, nextIdx);
+      return;
+    }
+
+    var nextLine = cursor.line + 1;
+    while (nextLine <= cm.lastLine() && isSeparatorLine(cm.getLine(nextLine))) nextLine++;
+    if (nextLine <= cm.lastLine() && isTableLine(cm.getLine(nextLine))) {
+      formatTableAt(cm, cursor.line);
+      goToCell(cm, nextLine, 1);
+      return;
+    }
+
+    formatTableAt(cm, cursor.line);
+  }
+
+  // ─── Hook into CodeMirror ─────────────────────────────────────────
+
+  function hookEditor(cm) {
+    var extraKeys = cm.getOption('extraKeys') || {};
+
+    extraKeys[FORMAT_KEYBIND] = function(cm) {
+      formatAllTables(cm);
+    };
+
+    if (TAB_NAVIGATION) {
+      var origTab = extraKeys['Tab'];
+      extraKeys['Tab'] = function(cm) {
+        var cursor = cm.getCursor();
+        if (isTableLine(cm.getLine(cursor.line))) {
+          tabNextCell(cm);
+          return;
+        }
+        if (origTab) return origTab(cm);
+        return CodeMirror.Pass;
+      };
+    }
+
+    cm.setOption('extraKeys', extraKeys);
+    var features = [FORMAT_KEYBIND + ' to format'];
+    if (TAB_NAVIGATION) features.push('Tab to navigate cells');
+    console.log('[Table Tidy] Hooked into editor (' + features.join(', ') + ')');
+  }
+
+  // ─── Wait for editor ──────────────────────────────────────────────
+
+  var attempts = 0;
+  var poll = setInterval(function() {
+    attempts++;
+    var el = document.querySelector('.CodeMirror');
+    if (el && el.CodeMirror) {
+      clearInterval(poll);
+      hookEditor(el.CodeMirror);
+    }
+    if (attempts > 100) clearInterval(poll);
+  }, 100);
+})();

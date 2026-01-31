@@ -1,0 +1,20 @@
+key: table-tidy
+title: Table Tidy
+description: Auto-formats markdown tables in the editor. Aligns pipes and pads cells on keybind or Tab.
+author: Sandra
+logo: https://static.requarks.io/logo/wikijs.svg
+website: https://github.com/sandrwich
+isAvailable: true
+props:
+  formatKeybind:
+    type: String
+    title: Format Keybind
+    hint: "CodeMirror keybind to format all tables. Examples: Shift-Alt-F, Ctrl-Shift-T"
+    default: "Shift-Alt-F"
+    order: 1
+  tabNavigation:
+    type: Boolean
+    title: Tab Navigation
+    hint: "Use Tab to format table and move to next cell when cursor is inside a table."
+    default: true
+    order: 2
