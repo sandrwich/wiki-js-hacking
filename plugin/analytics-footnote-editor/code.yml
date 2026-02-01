@@ -1,18 +1,398 @@
-head: ""
+head: |
+  <script>
+  (function() {
+    if (!/^\/e\//.test(window.location.pathname)) return;
+
+    // ─── CKEditor 5 Footnote Plugin (injected before editor loads) ──
+    // Intercepts webpackJsonp to add extraPlugins with schema,
+    // converters, and post-fixer before CKEditor.create() is called.
+
+    window.__footnotePluginReady = false;
+
+    function FootnotePlugin(editor) {
+      // Schema
+      editor.model.schema.register('footnoteRef', {
+        allowWhere: '$text',
+        isInline: true,
+        isObject: true,
+        allowAttributes: ['footnoteId']
+      });
+
+      // Editing downcast: model -> <sup> in editor (content via CSS attr)
+      editor.conversion.for('editingDowncast').elementToElement({
+        model: 'footnoteRef',
+        view: function(modelElement, viewWriter) {
+          var id = modelElement.getAttribute('footnoteId') || '?';
+          return viewWriter.createContainerElement('sup', {
+            class: 'footnote-ref',
+            'data-footnote-id': id
+          });
+        }
+      });
+
+      // Attribute change downcast: update view when footnoteId changes
+      editor.conversion.for('editingDowncast').add(function(dispatcher) {
+        dispatcher.on('attribute:footnoteId:footnoteRef', function(evt, data, conversionApi) {
+          var viewElement = conversionApi.mapper.toViewElement(data.item);
+          if (viewElement) {
+            conversionApi.writer.setAttribute('data-footnote-id', data.attributeNewValue, viewElement);
+          }
+        });
+      });
+      editor.conversion.for('dataDowncast').add(function(dispatcher) {
+        dispatcher.on('attribute:footnoteId:footnoteRef', function(evt, data, conversionApi) {
+          var viewElement = conversionApi.mapper.toViewElement(data.item);
+          if (viewElement) {
+            conversionApi.writer.setAttribute('data-footnote', data.attributeNewValue, viewElement);
+          }
+        });
+      });
+
+      // Data downcast: model -> plain text [^id] for storage (no wrapping element)
+      // Override getData to replace footnoteRef markers with plain text
+      var origGetData = editor.getData.bind(editor);
+      editor.getData = function(opts) {
+        var html = origGetData(opts);
+        // The elementToElement produces empty <span> containers.
+        // Replace them with [^id] text using the data-footnote attribute.
+        html = html.replace(/<span class="footnote-marker" data-footnote="(\w+?)">[^<]*<\/span>/g, '[^$1]');
+        // Also handle self-closing or empty with br filler
+        html = html.replace(/<span class="footnote-marker" data-footnote="(\w+?)"><br[^>]*><\/span>/g, '[^$1]');
+        return html;
+      };
+
+      // Still register a data downcast so CKEditor doesn't complain about unmapped elements
+      editor.conversion.for('dataDowncast').elementToElement({
+        model: 'footnoteRef',
+        view: function(modelElement, viewWriter) {
+          var id = modelElement.getAttribute('footnoteId') || '?';
+          return viewWriter.createContainerElement('span', {
+            class: 'footnote-marker',
+            'data-footnote': id
+          });
+        }
+      });
+
+      // Single-backspace delete: skip the "select widget" intermediate step
+      editor.editing.view.document.on('delete', function(evt, data) {
+        var sel = editor.model.document.selection;
+        var selElement = sel.getSelectedElement();
+        if (selElement && selElement.is('element', 'footnoteRef')) {
+          editor.model.change(function(writer) {
+            writer.remove(selElement);
+          });
+          data.preventDefault();
+          evt.stop();
+          return;
+        }
+        // Also handle: caret is right after a footnoteRef (backward delete)
+        if (data.direction === 'backward') {
+          var pos = sel.getFirstPosition();
+          var nodeBefore = pos && pos.nodeBefore;
+          if (nodeBefore && nodeBefore.is && nodeBefore.is('element', 'footnoteRef')) {
+            editor.model.change(function(writer) {
+              writer.remove(nodeBefore);
+            });
+            data.preventDefault();
+            evt.stop();
+            return;
+          }
+        }
+        // Forward delete when caret is right before a footnoteRef
+        if (data.direction === 'forward') {
+          var pos = sel.getFirstPosition();
+          var nodeAfter = pos && pos.nodeAfter;
+          if (nodeAfter && nodeAfter.is && nodeAfter.is('element', 'footnoteRef')) {
+            editor.model.change(function(writer) {
+              writer.remove(nodeAfter);
+            });
+            data.preventDefault();
+            evt.stop();
+            return;
+          }
+        }
+      }, { priority: 'high' });
+
+      // Inject CSS for footnote display in editor
+      var style = document.createElement('style');
+      style.textContent = 'sup.footnote-ref { color: #1976d2; cursor: pointer; background: #e3f2fd; padding: 0 3px; border-radius: 2px; font-weight: bold; font-size: 0.75em; } sup.footnote-ref::after { content: "[" attr(data-footnote-id) "]"; } sup.footnote-ref br[data-cke-filler] { display: none; } .footnote-def-block { color: #666; font-size: 0.9em; border-top: 1px solid #ddd; padding-top: 4px; margin-top: 4px; } .fn-edit-bubble { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); padding: 6px 8px; display: flex; align-items: center; gap: 6px; font-size: 13px; } .fn-edit-bubble input { width: 60px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; } .fn-edit-bubble button { padding: 2px 8px; border: none; background: #1976d2; color: #fff; border-radius: 3px; cursor: pointer; font-size: 12px; } .fn-edit-bubble button:hover { background: #1565c0; } .fn-edit-bubble button.fn-del { background: #d32f2f; } .fn-edit-bubble button.fn-del:hover { background: #b71c1c; }';
+      document.head.appendChild(style);
+
+      // Double-click to edit footnote widget
+      editor.editing.view.document.on('click', function(evt, data) {
+        var domTarget = data.domTarget;
+        var sup = domTarget.closest ? domTarget.closest('sup.footnote-ref') : null;
+        if (!sup) return;
+
+        // Remove any existing bubble
+        var old = document.querySelector('.fn-edit-bubble');
+        if (old) old.remove();
+
+        var currentId = sup.getAttribute('data-footnote-id') || '';
+
+        // Find the model element for this view element
+        var viewElement = editor.editing.view.domConverter.mapDomToView(sup);
+        var modelElement = viewElement ? editor.editing.mapper.toModelElement(viewElement) : null;
+        if (!modelElement) return;
+
+        // Create edit bubble
+        var bubble = document.createElement('div');
+        bubble.className = 'fn-edit-bubble';
+        bubble.innerHTML = '<span>ID:</span><input type="text" value="' + currentId + '"><button class="fn-ok">OK</button><button class="fn-del">Del</button>';
+        document.body.appendChild(bubble);
+
+        // Position near the sup element
+        var rect = sup.getBoundingClientRect();
+        bubble.style.left = rect.left + 'px';
+        bubble.style.top = (rect.bottom + 4) + 'px';
+
+        var input = bubble.querySelector('input');
+        input.focus();
+        input.select();
+
+        function closeBubble() { if (bubble.parentNode) bubble.remove(); }
+
+        bubble.querySelector('.fn-ok').addEventListener('click', function() {
+          var newId = input.value.trim();
+          if (newId && newId !== currentId) {
+            editor.model.change(function(writer) {
+              writer.setAttribute('footnoteId', newId, modelElement);
+              // Update matching definition [^oldId]: -> [^newId]:
+              var root = editor.model.document.getRoot();
+              var items = Array.from(writer.createRangeIn(root).getItems());
+              for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                if (!item.data) continue;
+                var defPattern = '[^' + currentId + ']:';
+                var idx = item.data.indexOf(defPattern);
+                if (idx >= 0) {
+                  var newText = item.data.substring(0, idx) + '[^' + newId + ']:' + item.data.substring(idx + defPattern.length);
+                  var parent = item.parent;
+                  var offset = item.startOffset;
+                  writer.remove(item);
+                  writer.insertText(newText, parent, offset);
+                  break;
+                }
+              }
+            });
+          }
+          closeBubble();
+          editor.editing.view.focus();
+        });
+
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') { bubble.querySelector('.fn-ok').click(); }
+          if (e.key === 'Escape') { closeBubble(); editor.editing.view.focus(); }
+          e.stopPropagation();
+        });
+
+        bubble.querySelector('.fn-del').addEventListener('click', function() {
+          editor.model.change(function(writer) {
+            writer.remove(modelElement);
+          });
+          closeBubble();
+          editor.editing.view.focus();
+        });
+
+        // Close on outside click
+        setTimeout(function() {
+          document.addEventListener('mousedown', function handler(e) {
+            if (!bubble.contains(e.target)) {
+              closeBubble();
+              document.removeEventListener('mousedown', handler);
+            }
+          });
+        }, 0);
+      });
+
+      // Upcast: <span class="footnote-marker"> -> model
+      editor.conversion.for('upcast').add(function(dispatcher) {
+        dispatcher.on('element:span', function(evt, data, conversionApi) {
+          var viewElement = data.viewItem;
+          if (!viewElement.hasClass('footnote-marker')) return;
+          if (!conversionApi.consumable.test(viewElement, { name: true, classes: 'footnote-marker' })) return;
+          var text = '';
+          for (var child of viewElement.getChildren()) {
+            if (child.data) text += child.data;
+          }
+          var match = text.match(/\[\^(\w+)\]/);
+          var id = match ? match[1] : '?';
+          var modelElement = conversionApi.writer.createElement('footnoteRef', { footnoteId: id });
+          if (!conversionApi.safeInsert(modelElement, data.modelCursor)) return;
+          conversionApi.consumable.consume(viewElement, { name: true, classes: 'footnote-marker' });
+          conversionApi.updateConversionResult(modelElement, data);
+        });
+      });
+
+      // Post-fixer: auto-convert [^id] typed as plain text into widget
+      editor.model.document.registerPostFixer(function(writer) {
+        var root = editor.model.document.getRoot();
+        var items = Array.from(writer.createRangeIn(root).getItems());
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (!item.data) continue;
+          var text = item.data;
+          var refMatch = /\[\^(\w+)\](?!:)/.exec(text);
+          if (!refMatch) continue;
+
+          // Skip definition lines [^id]: text
+          var fullText = '';
+          var parent = item.parent;
+          if (parent) {
+            for (var child of parent.getChildren()) {
+              if (child.data) fullText += child.data;
+            }
+          }
+          if (/^\[\^\w+\]:/.test(fullText.trim())) continue;
+
+          try {
+            var matchOffset = refMatch.index;
+            var matchLen = refMatch[0].length;
+            var id = refMatch[1];
+            var absOffset = item.startOffset + matchOffset;
+
+            // Insert widget first, then remove the text
+            var widget = writer.createElement('footnoteRef', { footnoteId: id });
+            writer.insert(widget, parent, absOffset);
+            // After insert, text is at absOffset+1
+            var removeStart = writer.createPositionAt(parent, absOffset + 1);
+            var removeEnd = writer.createPositionAt(parent, absOffset + 1 + matchLen);
+            writer.remove(writer.createRange(removeStart, removeEnd));
+          } catch(e) {
+            console.warn('[Footnote Plugin] Post-fixer error:', e.message);
+          }
+          return true;
+        }
+        return false;
+      });
+
+      // Reverse sync: if a definition [^id]: is renamed, update the matching widget
+      // Track previous definition<->widget mapping
+      var __prevDefIds = [];
+      var __prevWidgetIds = [];
+      editor.model.document.registerPostFixer(function(writer) {
+        var root = editor.model.document.getRoot();
+        var items = Array.from(writer.createRangeIn(root).getItems());
+        var defIds = [];
+        var widgets = [];
+
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (item.is && item.is('element', 'footnoteRef')) {
+            widgets.push({ el: item, id: item.getAttribute('footnoteId') });
+          }
+          if (item.data) {
+            var dm = /\[\^(\w+)\]:/.exec(item.data);
+            if (dm) defIds.push(dm[1]);
+          }
+        }
+
+        var widgetIds = widgets.map(function(w) { return w.id; });
+
+        // Only act if counts match previous and one def changed
+        if (__prevDefIds.length > 0 && defIds.length === __prevDefIds.length && widgetIds.length === __prevWidgetIds.length) {
+          for (var d = 0; d < defIds.length; d++) {
+            if (defIds[d] !== __prevDefIds[d]) {
+              var oldDefId = __prevDefIds[d];
+              var newDefId = defIds[d];
+              // Find widget with old ID and update it
+              for (var w = 0; w < widgets.length; w++) {
+                if (widgets[w].id === oldDefId) {
+                  writer.setAttribute('footnoteId', newDefId, widgets[w].el);
+                  __prevDefIds = defIds;
+                  __prevWidgetIds = widgetIds.slice();
+                  __prevWidgetIds[w] = newDefId;
+                  return true;
+                }
+              }
+            }
+          }
+        }
+
+        __prevDefIds = defIds;
+        __prevWidgetIds = widgetIds;
+        return false;
+      });
+
+      window.__footnotePluginReady = true;
+      console.log('[Footnote Plugin] Schema + converters registered');
+    }
+    FootnotePlugin.pluginName = 'FootnotePlugin';
+
+    // ─── Intercept webpack chunk loading ─────────────────────────────
+    var wp = window.webpackJsonp = window.webpackJsonp || [];
+    var origPush = wp.push.bind(wp);
+
+    wp.push = function(chunk) {
+      var modules = chunk[1];
+      if (modules) {
+        var keys = Object.keys(modules);
+        for (var k = 0; k < keys.length; k++) {
+          if (keys[k].indexOf('@requarks/ckeditor5') >= 0) {
+            console.log('[Footnote Plugin] Intercepted CKEditor module: ' + keys[k]);
+            var origFactory = modules[keys[k]];
+            modules[keys[k]] = function(orig) {
+              return function(module, exports, require) {
+                orig.call(this, module, exports, require);
+                var Editor = module.exports.default || module.exports;
+                if (Editor && Editor.create) {
+                  var origCreate = Editor.create;
+                  Editor.create = function(element, config) {
+                    config = config || {};
+                    config.extraPlugins = config.extraPlugins || [];
+                    config.extraPlugins.push(FootnotePlugin);
+                    console.log('[Footnote Plugin] Injected into CKEditor.create()');
+                    return origCreate.call(Editor, element, config);
+                  };
+                }
+              };
+            }(origFactory);
+            break;
+          }
+        }
+      }
+      return origPush(chunk);
+    };
+
+    // Also patch already-queued chunks (unlikely but safe)
+    for (var i = 0; i < wp.length; i++) {
+      var modules = wp[i][1];
+      if (!modules) continue;
+      var keys = Object.keys(modules);
+      for (var k = 0; k < keys.length; k++) {
+        if (keys[k].indexOf('@requarks/ckeditor5') >= 0) {
+          console.log('[Footnote Plugin] Found CKEditor in pre-queued chunk ' + i);
+        }
+      }
+    }
+
+    console.log('[Footnote Plugin] Webpack hook installed, waiting for editor-ckeditor chunk');
+  })();
+  </script>
 bodyStart: ""
 bodyEnd: |
   <script>
   (function() {
     if (!/^\/e\//.test(window.location.pathname)) return;
 
+    // ─── Toolbar button + keyboard shortcut (runs after editor loads) ─
+
     function getNextFootnoteId(editor) {
-      var data = editor.getData();
+      var root = editor.model.document.getRoot();
       var max = 0;
-      var re = /\[\^(\d+)\]/g;
-      var m;
-      while ((m = re.exec(data)) !== null) {
-        var n = parseInt(m[1], 10);
-        if (n > max) max = n;
+      for (var item of editor.model.createRangeIn(root).getItems()) {
+        if (item.is && item.is('element', 'footnoteRef')) {
+          var n = parseInt(item.getAttribute('footnoteId'), 10);
+          if (n > max) max = n;
+        }
+        if (item.data) {
+          var re = /\[\^(\d+)\]/g;
+          var m;
+          while ((m = re.exec(item.data)) !== null) {
+            var num = parseInt(m[1], 10);
+            if (num > max) max = num;
+          }
+        }
       }
       return max + 1;
     }
@@ -21,14 +401,17 @@ bodyEnd: |
       var n = getNextFootnoteId(editor);
 
       editor.model.change(function(writer) {
-        // Insert [^n] at cursor
-        var selection = editor.model.document.selection;
-        var pos = selection.getFirstPosition();
+        // Insert footnoteRef widget at cursor (if plugin loaded) or plain text
+        var pos = editor.model.document.selection.getFirstPosition();
         if (pos) {
-          writer.insertText('[^' + n + ']', pos);
+          if (editor.model.schema.isRegistered('footnoteRef')) {
+            writer.insert(writer.createElement('footnoteRef', { footnoteId: String(n) }), pos);
+          } else {
+            writer.insertText('[^' + n + ']', pos);
+          }
         }
 
-        // Find definitions block to append to
+        // Append definition to existing block or create new one
         var appendTo = '{{appendTo}}' || 'first';
         var root = editor.model.document.getRoot();
         var defIdx = -1;
@@ -53,13 +436,11 @@ bodyEnd: |
         }
 
         if (defIdx >= 0) {
-          // Append to existing definitions paragraph with a softBreak
           var defPara = root.getChild(defIdx);
           var endPos = writer.createPositionAt(defPara, 'end');
           writer.insert(writer.createElement('softBreak'), endPos);
           writer.insertText('[^' + n + ']: ', writer.createPositionAt(defPara, 'end'));
         } else {
-          // No definitions yet — add blank line then definition
           var lastChild = root.getChild(root.childCount - 1);
           var sep = writer.createElement('paragraph');
           writer.insert(sep, writer.createPositionAfter(lastChild));
@@ -81,42 +462,61 @@ bodyEnd: |
         var btn = document.createElement('button');
         btn.className = 'ck ck-button ck-off';
         btn.type = 'button';
-        btn.title = 'Insert Footnote (Ctrl+Shift+F)';
         btn.innerHTML = '<span style="font-size: 11px; font-weight: bold; line-height: 1;">f<sup>n</sup></span>';
         btn.style.cssText = 'min-width: 32px; min-height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer;';
-        btn.addEventListener('mousedown', function(e) {
-          e.preventDefault(); // prevent focus loss from editor
-        });
+        btn.addEventListener('mousedown', function(e) { e.preventDefault(); });
         btn.addEventListener('click', function() {
           editor.editing.view.focus();
           insertFootnote(editor);
         });
         toolbar.appendChild(btn);
+
+        // Keyboard shortcut
+        var keybindStr = '{{keybind}}' || 'Ctrl+Shift+F';
+        var parts = keybindStr.split('+').map(function(s) { return s.trim().toLowerCase(); });
+        var bindKey = parts.filter(function(p) { return p !== 'ctrl' && p !== 'shift' && p !== 'alt' && p !== 'meta'; })[0] || 'f';
+        var needCtrl = parts.indexOf('ctrl') >= 0;
+        var needShift = parts.indexOf('shift') >= 0;
+        var needAlt = parts.indexOf('alt') >= 0;
+
+        btn.title = 'Insert Footnote (' + keybindStr + ')';
+
+        editor.editing.view.getDomRoot().addEventListener('keydown', function(e) {
+          var ctrlOk = needCtrl ? (e.ctrlKey || e.metaKey) : !e.ctrlKey && !e.metaKey;
+          var shiftOk = needShift ? e.shiftKey : !e.shiftKey;
+          var altOk = needAlt ? e.altKey : !e.altKey;
+          if (ctrlOk && shiftOk && altOk && e.key.toLowerCase() === bindKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            insertFootnote(editor);
+          }
+        }, true);
       }
 
-      // Keyboard shortcut
-      var keybindStr = '{{keybind}}' || 'Ctrl+Shift+F';
-      var parts = keybindStr.split('+').map(function(s) { return s.trim().toLowerCase(); });
-      var bindKey = parts.filter(function(p) { return p !== 'ctrl' && p !== 'shift' && p !== 'alt' && p !== 'meta'; })[0] || 'f';
-      var needCtrl = parts.indexOf('ctrl') >= 0;
-      var needShift = parts.indexOf('shift') >= 0;
-      var needAlt = parts.indexOf('alt') >= 0;
-
-      btn.title = 'Insert Footnote (' + keybindStr + ')';
-
-      var root = editor.editing.view.getDomRoot();
-      root.addEventListener('keydown', function(e) {
-        var ctrlOk = needCtrl ? (e.ctrlKey || e.metaKey) : !e.ctrlKey && !e.metaKey;
-        var shiftOk = needShift ? e.shiftKey : !e.shiftKey;
-        var altOk = needAlt ? e.altKey : !e.altKey;
-        if (ctrlOk && shiftOk && altOk && e.key.toLowerCase() === bindKey) {
-          e.preventDefault();
-          e.stopPropagation();
-          insertFootnote(editor);
+      // Style definition paragraphs containing [^id]: patterns
+      function styleDefinitions() {
+        var editable = document.querySelector('.ck-editor__editable');
+        if (!editable) return;
+        var paras = editable.querySelectorAll('p');
+        for (var i = 0; i < paras.length; i++) {
+          var text = paras[i].textContent || '';
+          if (/\[\^\w+\]:/.test(text)) {
+            paras[i].classList.add('footnote-def-block');
+          } else {
+            paras[i].classList.remove('footnote-def-block');
+          }
         }
-      }, true);
+      }
 
-      console.log('[Footnote Plugin] Ready (Ctrl+Shift+F / toolbar button)');
+      var defObserver = new MutationObserver(styleDefinitions);
+      var editable = document.querySelector('.ck-editor__editable');
+      if (editable) {
+        defObserver.observe(editable, { childList: true, subtree: true, characterData: true });
+        styleDefinitions();
+      }
+
+      var mode = window.__footnotePluginReady ? 'WYSIWYG widgets' : 'plain text';
+      console.log('[Footnote Plugin] Ready (' + mode + ')');
     }
 
     var attempts = 0;
@@ -127,7 +527,7 @@ bodyEnd: |
         clearInterval(poll);
         hookEditor(el.ckeditorInstance);
       }
-      if (attempts > 100) clearInterval(poll);
+      if (attempts > 600) clearInterval(poll);
     }, 100);
   })();
   </script>
