@@ -6,231 +6,90 @@ head: |
     // ─── CKEditor 5 Footnote Plugin (injected before editor loads) ──
     // Intercepts webpackJsonp to add extraPlugins with schema,
     // converters, and post-fixer before CKEditor.create() is called.
+    // footnoteRef is an editable inline element — the text inside IS the ID.
 
     window.__footnotePluginReady = false;
 
     function FootnotePlugin(editor) {
-      // Schema
+      // Schema: editable inline element that contains text
       editor.model.schema.register('footnoteRef', {
         allowWhere: '$text',
         isInline: true,
-        isObject: true,
-        allowAttributes: ['footnoteId']
+        isLimit: true,
+        allowContentOf: '$block'
       });
 
-      // Editing downcast: model -> <sup> in editor (content via CSS attr)
+      // Editing downcast: model -> editable <sup> in editor
       editor.conversion.for('editingDowncast').elementToElement({
         model: 'footnoteRef',
         view: function(modelElement, viewWriter) {
-          var id = modelElement.getAttribute('footnoteId') || '?';
-          return viewWriter.createContainerElement('sup', {
-            class: 'footnote-ref',
-            'data-footnote-id': id
+          return viewWriter.createEditableElement('sup', {
+            class: 'footnote-ref'
           });
         }
       });
 
-      // Attribute change downcast: update view when footnoteId changes
-      editor.conversion.for('editingDowncast').add(function(dispatcher) {
-        dispatcher.on('attribute:footnoteId:footnoteRef', function(evt, data, conversionApi) {
-          var viewElement = conversionApi.mapper.toViewElement(data.item);
-          if (viewElement) {
-            conversionApi.writer.setAttribute('data-footnote-id', data.attributeNewValue, viewElement);
-          }
-        });
-      });
-      editor.conversion.for('dataDowncast').add(function(dispatcher) {
-        dispatcher.on('attribute:footnoteId:footnoteRef', function(evt, data, conversionApi) {
-          var viewElement = conversionApi.mapper.toViewElement(data.item);
-          if (viewElement) {
-            conversionApi.writer.setAttribute('data-footnote', data.attributeNewValue, viewElement);
-          }
-        });
-      });
-
-      // Data downcast: model -> plain text [^id] for storage (no wrapping element)
-      // Override getData to replace footnoteRef markers with plain text
-      var origGetData = editor.getData.bind(editor);
-      editor.getData = function(opts) {
-        var html = origGetData(opts);
-        // The elementToElement produces empty <span> containers.
-        // Replace them with [^id] text using the data-footnote attribute.
-        html = html.replace(/<span class="footnote-marker" data-footnote="(\w+?)">[^<]*<\/span>/g, '[^$1]');
-        // Also handle self-closing or empty with br filler
-        html = html.replace(/<span class="footnote-marker" data-footnote="(\w+?)"><br[^>]*><\/span>/g, '[^$1]');
-        return html;
-      };
-
-      // Still register a data downcast so CKEditor doesn't complain about unmapped elements
+      // Data downcast: model -> <span class="footnote-marker"> for storage
       editor.conversion.for('dataDowncast').elementToElement({
         model: 'footnoteRef',
         view: function(modelElement, viewWriter) {
-          var id = modelElement.getAttribute('footnoteId') || '?';
           return viewWriter.createContainerElement('span', {
-            class: 'footnote-marker',
-            'data-footnote': id
+            class: 'footnote-marker'
           });
         }
       });
 
-      // Single-backspace delete: skip the "select widget" intermediate step
-      editor.editing.view.document.on('delete', function(evt, data) {
-        var sel = editor.model.document.selection;
-        var selElement = sel.getSelectedElement();
-        if (selElement && selElement.is('element', 'footnoteRef')) {
-          editor.model.change(function(writer) {
-            writer.remove(selElement);
-          });
-          data.preventDefault();
-          evt.stop();
-          return;
-        }
-        // Also handle: caret is right after a footnoteRef (backward delete)
-        if (data.direction === 'backward') {
-          var pos = sel.getFirstPosition();
-          var nodeBefore = pos && pos.nodeBefore;
-          if (nodeBefore && nodeBefore.is && nodeBefore.is('element', 'footnoteRef')) {
-            editor.model.change(function(writer) {
-              writer.remove(nodeBefore);
-            });
-            data.preventDefault();
-            evt.stop();
-            return;
-          }
-        }
-        // Forward delete when caret is right before a footnoteRef
-        if (data.direction === 'forward') {
-          var pos = sel.getFirstPosition();
-          var nodeAfter = pos && pos.nodeAfter;
-          if (nodeAfter && nodeAfter.is && nodeAfter.is('element', 'footnoteRef')) {
-            editor.model.change(function(writer) {
-              writer.remove(nodeAfter);
-            });
-            data.preventDefault();
-            evt.stop();
-            return;
-          }
-        }
-      }, { priority: 'high' });
+      // Override getData to replace <span class="footnote-marker">id</span> with [^id]
+      var origGetData = editor.getData.bind(editor);
+      editor.getData = function(opts) {
+        var html = origGetData(opts);
+        html = html.replace(/\u200B/g, '');
+        html = html.replace(/<span class="footnote-marker">([^<]*)<\/span>/g, '[^$1]');
+        html = html.replace(/<span class="footnote-marker"><br[^>]*><\/span>/g, '');
+        return html;
+      };
 
-      // Inject CSS for footnote display in editor
-      var style = document.createElement('style');
-      style.textContent = 'sup.footnote-ref { color: #1976d2; cursor: pointer; background: #e3f2fd; padding: 0 3px; border-radius: 2px; font-weight: bold; font-size: 0.75em; } sup.footnote-ref::after { content: "[" attr(data-footnote-id) "]"; } sup.footnote-ref br[data-cke-filler] { display: none; } .footnote-def-block { color: #666; font-size: 0.9em; border-top: 1px solid #ddd; padding-top: 4px; margin-top: 4px; } .fn-edit-bubble { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); padding: 6px 8px; display: flex; align-items: center; gap: 6px; font-size: 13px; } .fn-edit-bubble input { width: 60px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; } .fn-edit-bubble button { padding: 2px 8px; border: none; background: #1976d2; color: #fff; border-radius: 3px; cursor: pointer; font-size: 12px; } .fn-edit-bubble button:hover { background: #1565c0; } .fn-edit-bubble button.fn-del { background: #d32f2f; } .fn-edit-bubble button.fn-del:hover { background: #b71c1c; }';
-      document.head.appendChild(style);
-
-      // Double-click to edit footnote widget
-      editor.editing.view.document.on('click', function(evt, data) {
-        var domTarget = data.domTarget;
-        var sup = domTarget.closest ? domTarget.closest('sup.footnote-ref') : null;
-        if (!sup) return;
-
-        // Remove any existing bubble
-        var old = document.querySelector('.fn-edit-bubble');
-        if (old) old.remove();
-
-        var currentId = sup.getAttribute('data-footnote-id') || '';
-
-        // Find the model element for this view element
-        var viewElement = editor.editing.view.domConverter.mapDomToView(sup);
-        var modelElement = viewElement ? editor.editing.mapper.toModelElement(viewElement) : null;
-        if (!modelElement) return;
-
-        // Create edit bubble
-        var bubble = document.createElement('div');
-        bubble.className = 'fn-edit-bubble';
-        bubble.innerHTML = '<span>ID:</span><input type="text" value="' + currentId + '"><button class="fn-ok">OK</button><button class="fn-del">Del</button>';
-        document.body.appendChild(bubble);
-
-        // Position near the sup element
-        var rect = sup.getBoundingClientRect();
-        bubble.style.left = rect.left + 'px';
-        bubble.style.top = (rect.bottom + 4) + 'px';
-
-        var input = bubble.querySelector('input');
-        input.focus();
-        input.select();
-
-        function closeBubble() { if (bubble.parentNode) bubble.remove(); }
-
-        bubble.querySelector('.fn-ok').addEventListener('click', function() {
-          var newId = input.value.trim();
-          if (newId && newId !== currentId) {
-            editor.model.change(function(writer) {
-              writer.setAttribute('footnoteId', newId, modelElement);
-              // Update matching definition [^oldId]: -> [^newId]:
-              var root = editor.model.document.getRoot();
-              var items = Array.from(writer.createRangeIn(root).getItems());
-              for (var i = 0; i < items.length; i++) {
-                var item = items[i];
-                if (!item.data) continue;
-                var defPattern = '[^' + currentId + ']:';
-                var idx = item.data.indexOf(defPattern);
-                if (idx >= 0) {
-                  var newText = item.data.substring(0, idx) + '[^' + newId + ']:' + item.data.substring(idx + defPattern.length);
-                  var parent = item.parent;
-                  var offset = item.startOffset;
-                  writer.remove(item);
-                  writer.insertText(newText, parent, offset);
-                  break;
-                }
-              }
-            });
-          }
-          closeBubble();
-          editor.editing.view.focus();
-        });
-
-        input.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') { bubble.querySelector('.fn-ok').click(); }
-          if (e.key === 'Escape') { closeBubble(); editor.editing.view.focus(); }
-          e.stopPropagation();
-        });
-
-        bubble.querySelector('.fn-del').addEventListener('click', function() {
-          editor.model.change(function(writer) {
-            writer.remove(modelElement);
-          });
-          closeBubble();
-          editor.editing.view.focus();
-        });
-
-        // Close on outside click
-        setTimeout(function() {
-          document.addEventListener('mousedown', function handler(e) {
-            if (!bubble.contains(e.target)) {
-              closeBubble();
-              document.removeEventListener('mousedown', handler);
-            }
-          });
-        }, 0);
-      });
-
-      // Upcast: <span class="footnote-marker"> -> model
+      // Upcast: <span class="footnote-marker"> -> model footnoteRef with text child
       editor.conversion.for('upcast').add(function(dispatcher) {
         dispatcher.on('element:span', function(evt, data, conversionApi) {
           var viewElement = data.viewItem;
           if (!viewElement.hasClass('footnote-marker')) return;
           if (!conversionApi.consumable.test(viewElement, { name: true, classes: 'footnote-marker' })) return;
-          var text = '';
-          for (var child of viewElement.getChildren()) {
-            if (child.data) text += child.data;
-          }
-          var match = text.match(/\[\^(\w+)\]/);
-          var id = match ? match[1] : '?';
-          var modelElement = conversionApi.writer.createElement('footnoteRef', { footnoteId: id });
+
+          var modelElement = conversionApi.writer.createElement('footnoteRef');
           if (!conversionApi.safeInsert(modelElement, data.modelCursor)) return;
           conversionApi.consumable.consume(viewElement, { name: true, classes: 'footnote-marker' });
+
+          // Convert children (text) into the model element
+          conversionApi.convertChildren(viewElement, modelElement);
           conversionApi.updateConversionResult(modelElement, data);
         });
       });
 
-      // Post-fixer: auto-convert [^id] typed as plain text into widget
+      // Inject CSS for footnote display in editor
+      var style = document.createElement('style');
+      style.textContent = [
+        'sup.footnote-ref { color: #1976d2; cursor: text; background: #e3f2fd;',
+        '  padding: 0 2px; border-radius: 2px; font-weight: bold; font-size: 0.75em;',
+        '  outline: none; min-width: 8px; display: inline-block; }',
+        'sup.footnote-ref::before { content: "["; pointer-events: none; }',
+        'sup.footnote-ref::after { content: "]"; pointer-events: none; }',
+        'sup.footnote-ref br[data-cke-filler] { display: none; }',
+        '.footnote-def-block { color: #666; font-size: 0.9em;',
+        '  border-top: 1px solid #ddd; padding-top: 4px; margin-top: 4px; }'
+      ].join(' ');
+      document.head.appendChild(style);
+
+      // Post-fixer: auto-convert [^id] typed as plain text into editable element
       editor.model.document.registerPostFixer(function(writer) {
         var root = editor.model.document.getRoot();
         var items = Array.from(writer.createRangeIn(root).getItems());
         for (var i = 0; i < items.length; i++) {
           var item = items[i];
           if (!item.data) continue;
+          // Skip text inside a footnoteRef (that's the editable content)
+          if (item.parent && item.parent.is && item.parent.is('element', 'footnoteRef')) continue;
+
           var text = item.data;
           var refMatch = /\[\^(\w+)\](?!:)/.exec(text);
           if (!refMatch) continue;
@@ -251,10 +110,11 @@ head: |
             var id = refMatch[1];
             var absOffset = item.startOffset + matchOffset;
 
-            // Insert widget first, then remove the text
-            var widget = writer.createElement('footnoteRef', { footnoteId: id });
-            writer.insert(widget, parent, absOffset);
-            // After insert, text is at absOffset+1
+            // Create footnoteRef with text child
+            var fnRef = writer.createElement('footnoteRef');
+            writer.insert(fnRef, parent, absOffset);
+            writer.insertText(id, fnRef, 0);
+            // Remove the original [^id] text (now shifted by 1 due to insert)
             var removeStart = writer.createPositionAt(parent, absOffset + 1);
             var removeEnd = writer.createPositionAt(parent, absOffset + 1 + matchLen);
             writer.remove(writer.createRange(removeStart, removeEnd));
@@ -266,52 +126,34 @@ head: |
         return false;
       });
 
-      // Reverse sync: if a definition [^id]: is renamed, update the matching widget
-      // Track previous definition<->widget mapping
-      var __prevDefIds = [];
-      var __prevWidgetIds = [];
+      // ZWS placeholder: insert when empty (and cursor not inside), strip when real content exists
       editor.model.document.registerPostFixer(function(writer) {
         var root = editor.model.document.getRoot();
-        var items = Array.from(writer.createRangeIn(root).getItems());
-        var defIds = [];
-        var widgets = [];
-
-        for (var i = 0; i < items.length; i++) {
-          var item = items[i];
-          if (item.is && item.is('element', 'footnoteRef')) {
-            widgets.push({ el: item, id: item.getAttribute('footnoteId') });
+        var sel = editor.model.document.selection.getFirstPosition();
+        var cursorParent = sel && sel.parent;
+        var changed = false;
+        for (var item of writer.createRangeIn(root).getItems()) {
+          if (!item.is || !item.is('element', 'footnoteRef')) continue;
+          var text = '';
+          for (var child of item.getChildren()) {
+            if (child.data) text += child.data;
           }
-          if (item.data) {
-            var dm = /\[\^(\w+)\]:/.exec(item.data);
-            if (dm) defIds.push(dm[1]);
-          }
-        }
-
-        var widgetIds = widgets.map(function(w) { return w.id; });
-
-        // Only act if counts match previous and one def changed
-        if (__prevDefIds.length > 0 && defIds.length === __prevDefIds.length && widgetIds.length === __prevWidgetIds.length) {
-          for (var d = 0; d < defIds.length; d++) {
-            if (defIds[d] !== __prevDefIds[d]) {
-              var oldDefId = __prevDefIds[d];
-              var newDefId = defIds[d];
-              // Find widget with old ID and update it
-              for (var w = 0; w < widgets.length; w++) {
-                if (widgets[w].id === oldDefId) {
-                  writer.setAttribute('footnoteId', newDefId, widgets[w].el);
-                  __prevDefIds = defIds;
-                  __prevWidgetIds = widgetIds.slice();
-                  __prevWidgetIds[w] = newDefId;
-                  return true;
-                }
+          if (text === '' && item !== cursorParent) {
+            writer.insertText('\u200B', item, 0);
+            changed = true;
+          } else if (text.replace(/\u200B/g, '').length > 0 && text.indexOf('\u200B') >= 0) {
+            for (var child of Array.from(item.getChildren())) {
+              if (child.data && child.data.indexOf('\u200B') >= 0) {
+                var clean = child.data.replace(/\u200B/g, '');
+                var offset = child.startOffset;
+                writer.remove(child);
+                if (clean) writer.insertText(clean, item, offset);
+                changed = true;
               }
             }
           }
         }
-
-        __prevDefIds = defIds;
-        __prevWidgetIds = widgetIds;
-        return false;
+        return changed;
       });
 
       window.__footnotePluginReady = true;
@@ -377,12 +219,20 @@ bodyEnd: |
 
     // ─── Toolbar button + keyboard shortcut (runs after editor loads) ─
 
+    function getFootnoteText(fnRef) {
+      var text = '';
+      for (var child of fnRef.getChildren()) {
+        if (child.data) text += child.data;
+      }
+      return text;
+    }
+
     function getNextFootnoteId(editor) {
       var root = editor.model.document.getRoot();
       var max = 0;
       for (var item of editor.model.createRangeIn(root).getItems()) {
         if (item.is && item.is('element', 'footnoteRef')) {
-          var n = parseInt(item.getAttribute('footnoteId'), 10);
+          var n = parseInt(getFootnoteText(item), 10);
           if (n > max) max = n;
         }
         if (item.data) {
@@ -401,11 +251,13 @@ bodyEnd: |
       var n = getNextFootnoteId(editor);
 
       editor.model.change(function(writer) {
-        // Insert footnoteRef widget at cursor (if plugin loaded) or plain text
+        // Insert footnoteRef with text child at cursor
         var pos = editor.model.document.selection.getFirstPosition();
         if (pos) {
           if (editor.model.schema.isRegistered('footnoteRef')) {
-            writer.insert(writer.createElement('footnoteRef', { footnoteId: String(n) }), pos);
+            var fnRef = writer.createElement('footnoteRef');
+            writer.insert(fnRef, pos);
+            writer.insertText(String(n), fnRef, 0);
           } else {
             writer.insertText('[^' + n + ']', pos);
           }
