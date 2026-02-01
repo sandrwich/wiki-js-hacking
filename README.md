@@ -36,10 +36,10 @@ services:
       - ./plugin/ext-data-gremlin:/wiki/server/modules/extensions/data-gremlin
       - ./plugin/analytics-table-tidy:/wiki/server/modules/analytics/table-tidy
       - ./plugin/html-footnotes:/wiki/server/modules/rendering/html-footnotes
-      - ./plugin/analytics-footnote-btn:/wiki/server/modules/analytics/footnote-btn
+      - ./plugin/analytics-footnote-editor:/wiki/server/modules/analytics/footnote-btn
 ```
 
-Then enable in **Admin > Rendering** (Data Gremlin, Footnotes) and **Admin > Analytics** (Table Tidy, Footnote Button).
+Then enable in **Admin > Rendering** (Data Gremlin, Footnotes) and **Admin > Analytics** (Table Tidy, Footnote Editor).
 
 ## License
 

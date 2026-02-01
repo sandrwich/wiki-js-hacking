@@ -1,6 +1,6 @@
-key: footnote-btn
-title: Footnote Button
-description: Adds a proper footnote plugin to the Visual Editor (CKEditor). Renders footnotes as styled superscript widgets with a toolbar button to insert them.
+key: footnote-editor
+title: Footnote Editor
+description: Adds footnote insertion to the Visual Editor (CKEditor). Toolbar button, keyboard shortcut, auto-numbering, and definition grouping.
 author: Sandra
 website: https://github.com/sandrwich
 logo: https://static.requarks.io/logo/wikijs.svg

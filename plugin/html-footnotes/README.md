@@ -52,12 +52,12 @@ Restart Wiki.js. The renderer appears in **Admin > Rendering** and is enabled by
 
 ## Footnote Button (optional)
 
-An optional analytics module (`plugin/analytics-footnote-btn/`) adds a toolbar button and keyboard shortcut (`Ctrl+Shift+F`) to insert footnote markers in CKEditor. It auto-increments the footnote number and appends the definition to the existing definitions block.
+An optional analytics module (`plugin/analytics-footnote-editor/`) adds a toolbar button and keyboard shortcut (`Ctrl+Shift+F`) to insert footnote markers in CKEditor. It auto-increments the footnote number and appends the definition to the existing definitions block.
 
 Mount it separately:
 
 ```yaml
-- ./plugin/analytics-footnote-btn:/wiki/server/modules/analytics/footnote-btn
+- ./plugin/analytics-footnote-editor:/wiki/server/modules/analytics/footnote-btn
 ```
 
 Enable in **Admin > Analytics**.
